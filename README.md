@@ -4,6 +4,7 @@
 
 - Postgresql
 - Typeorm
+- Graphql
 - Apollo Server
 - Session + RedisStore
 
@@ -11,4 +12,5 @@
 
 - React 
 - Nextjs
+- Graphql
 - Urql
