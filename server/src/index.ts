@@ -13,7 +13,7 @@ import Redis from "ioredis";
 import connectRedis from "connect-redis";
 import session from "express-session";
 import cors from "cors";
-import { __prod__ } from "./constants";
+import { COOKIE_NAME, __prod__ } from "./constants";
 
 const main = async () => {
   await createConnection({
@@ -38,14 +38,14 @@ const main = async () => {
     })
   );
 
-  // create redis client
-  const redis = new Redis();
   // connect redis to session
   const RedisStore = connectRedis(session);
+  // create redis client / check ioRedis
+  const redis = new Redis();
   // session config
   app.use(
     session({
-      name: "qid",
+      name: COOKIE_NAME,
       store: new RedisStore({
         client: redis,
         disableTouch: true,
@@ -62,19 +62,22 @@ const main = async () => {
     })
   );
 
+  console.log(__prod__);
+
   const apolloServer = new ApolloServer({
     schema: await buildSchema({
       resolvers: [HelloResolver, TodoResolver, UserResolver],
       validate: false,
     }),
-    context: ({ req, res }) => ({ req, res }),
+    context: ({ req, res }) => ({ req, res, redis }),
   });
 
-  apolloServer.applyMiddleware({ app });
+  apolloServer.applyMiddleware({ app, cors: false });
+
   app.listen(4000, () => {
     console.log("graphql server started on http://localhost:4000/graphql");
   });
 };
 
 //
-main();
+main().catch((err) => console.error(err));

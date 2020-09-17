@@ -1,2 +1,6 @@
-dist/
-node_modules/
+server/dist/
+server/node_modules/
+server/yarn-error.log
+
+web/.next
+web/node_modules

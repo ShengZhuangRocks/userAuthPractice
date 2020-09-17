@@ -1,10 +1,15 @@
 import argon2 from "argon2";
+import { Request, Response } from "express";
+import { Redis } from "ioredis";
+import { COOKIE_NAME } from "../constants";
 import {
   Arg,
+  Ctx,
   Field,
   InputType,
   Mutation,
   ObjectType,
+  Query,
   Resolver,
 } from "type-graphql";
 import { getRepository } from "typeorm";
@@ -42,11 +47,20 @@ class UserResponse {
   error?: ErrorMessage[];
 }
 
+interface UserContext {
+  req: Request;
+  res: Response;
+  redis: Redis;
+}
+
 @Resolver(User)
 export class UserResolver {
   // create user
   @Mutation(() => UserResponse)
-  async register(@Arg("options") options: RegisterInput) {
+  async register(
+    @Arg("options") options: RegisterInput,
+    @Ctx() { req }: UserContext
+  ) {
     // invalidate input
     if (options.username.length < 3) {
       return {
@@ -78,6 +92,7 @@ export class UserResolver {
         username: options.username,
         password: hashedPassword,
       });
+      req.session!.userId = user.id;
     } catch (error) {
       return {
         error: [
@@ -93,27 +108,35 @@ export class UserResolver {
 
   //login user
   @Mutation(() => UserResponse)
-  async login(@Arg("options") options: LoginInput) {
+  async login(
+    @Arg("options") options: LoginInput,
+    @Ctx() { req }: UserContext
+  ) {
     const { username, password } = options;
     const userRepo = getRepository(User);
     const user = await userRepo.findOne({ username });
     if (!user) {
       return {
-        error: {
-          field: "username",
-          message: "user not exist!",
-        },
+        error: [
+          {
+            field: "username",
+            message: "user not exist!",
+          },
+        ],
       };
     }
-    const pass = argon2.verify(user.password, password);
+    const pass = await argon2.verify(user.password, password);
     if (!pass) {
       return {
-        error: {
-          field: "password",
-          message: "wrong password!",
-        },
+        error: [
+          {
+            field: "password",
+            message: "wrong password!",
+          },
+        ],
       };
     }
+    req.session!.userId = user.id;
     return { user };
   }
 
@@ -122,7 +145,8 @@ export class UserResolver {
   async changePassword(
     @Arg("username") username: string,
     @Arg("oldPassword") oldPassword: string,
-    @Arg("newPassword") newPassword: string
+    @Arg("newPassword") newPassword: string,
+    @Ctx() { req }: UserContext
   ) {
     if (newPassword.length < 3) {
       return {
@@ -162,15 +186,39 @@ export class UserResolver {
     user.password = await argon2.hash(newPassword);
     try {
       await userRepo.save(user);
+      req.session!.userId = user.id;
     } catch (err) {
       console.log(err);
     }
+
     return { user };
   }
 
   // change forgot password
 
   // logout user
+  @Mutation(() => Boolean)
+  logout(@Ctx() { req, res }: UserContext) {
+    return new Promise((resolve) => {
+      req.session?.destroy((err) => {
+        res.clearCookie(COOKIE_NAME);
+        if (err) {
+          console.error(err);
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      });
+    });
+  }
 
   // check current user, me
+  @Query(() => User, { nullable: true })
+  async currentUser(@Ctx() { req }: UserContext) {
+    if (!req.session!.userId) {
+      return null;
+    }
+    const userRepo = getRepository(User);
+    return userRepo.findOne(req.session!.userId);
+  }
 }
